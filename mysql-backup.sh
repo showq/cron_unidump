@@ -1,6 +1,4 @@
 #! /bin/bash
-MYDUMPER=`which mydumper`
-echo $MYDUMPER
 
 function die(){
   echo >&2 "$@"
@@ -17,6 +15,9 @@ if  [ ! -d $BACKDIR ]; then
 	mkdir -p $BACKDIR
 	echo "done!"
 fi
+
+# Load conf.d/ .conf file
+# 中文
 
 for KEY in "${!DBHOST[@]}"; do
 	echo "Backing up MySQL database on ${DBHOST[$KEY]}..."
