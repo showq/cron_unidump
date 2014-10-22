@@ -7,6 +7,12 @@ function die(){
 CONFIG=${1:-`dirname $0`/mysql-backup.conf}
 [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}!"
 
+
+INFO=`cat $CONFIG \
+| grep -v ^$ \
+ | sed -n "s/\s\+//;/\[${HOSTID}\]/,/^\[/p" \
+  | grep -v ^'\[' ` && eval "$INFO"
+
 # check of the backup directory exists
 # if not, create it
 if  [ ! -d $BACKDIR ]; then
