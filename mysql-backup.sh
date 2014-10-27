@@ -12,13 +12,21 @@ function die()
 	exit 1
 }
 function mysqlCommand(){
-  echo `mysql -h ${OPTIONS[0]} --user=${OPTIONS[1]} --password=${OPTIONS[2]} -Bse "$1"`;
+  # echo `mysql -h ${OPTIONS[0]} --user=${OPTIONS[1]} --password=${OPTIONS[2]} -Bse "$1"`;
+  echo `mysql -h $1 --user=$2 --password=$3 -Bse "$4"`;
 }
-
-function rule(){
-  echo -e "\033[$1 $3------ $2 ------ \033[0m"
+function commentLine(){
+  echo -e "\033[$1#------ $2 ------ \033[0m"
 }
-
+function startCommentLine(){
+  echo -e "\033[36m#################### \033[0m"
+  echo -e "\033[36m##$1 \033[0m"
+}
+function endCommentLine(){
+  echo -e "\033[36m#################### \033[0m"
+  echo " "
+  echo " "
+}
 CONFIG=${1:-`dirname $0`/mysql-backup.conf}
 [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}!"
 
@@ -42,13 +50,17 @@ do
 	OPTIONS[2]=${DBPASS:-${BACKUP_PASS}}
 	OPTIONS[3]=${DBTYPE}
 	OPTIONS[4]=${DBNAME}
+  OPTIONS[5]=${DBMAIL:-${BACKUP_MAIL}}
+  OPTIONS[6]=${DBEMAILS:-${BACKUP_EMAILS}}
+
   #@TODO: Add debug options echo ${OPTIONS[@]}
 
 	if [ -z "${OPTIONS[4]}" ]; then
-    rule 31m "Creating list of all your databases..." "|"
-    DBS=`mysqlCommand "Show databases;"`
-		echo "Please modify config file, Usage "
-    echo "${DBS}!"
+    startCommentLine "Creating list of all your databases..."
+    DBS=`mysqlCommand ${OPTIONS[0]} ${OPTIONS[1]} ${OPTIONS[2]} "Show databases;"`
+    commentLine 32m "Please modify config file, Usage "
+    commentLine 32m "${DBS}"
+    endCommentLine
     exit 0
 	fi
 
@@ -71,45 +83,59 @@ do
 	# fi
 
   # echo -n "Backing up database ${OPTIONS[4]}..."
-  rule "32m" "Backing up MySQL database ${OPTIONS[4]} on ${OPTIONS[0]}..." "|"
-
-  DB_BACKDIR=${BACKDIR}/${OPTIONS[4]}/${DATE}
-  if [ ! -d $DB_BACKDIR ]; then
-    rule "36m" "Creating $DB_BACKDIR for ${OPTIONS[4]}..." "|"
-    mkdir -p $DB_BACKDIR
+  startCommentLine "Backing up MySQL database ${OPTIONS[4]} on ${OPTIONS[0]}..."
+  DB_BACKDIR=${BACKDIR}/${OPTIONS[4]}
+  DB_DATE_BACKDIR=${DB_BACKDIR}/${DATE}
+  if [ ! -d $DB_DATE_BACKDIR ]; then
+    commentLine 32m "Creating $DB_DATE_BACKDIR for ${OPTIONS[4]}..."
+    mkdir -p $DB_DATE_BACKDIR
   fi
+
   test ${OPTIONS[0]} == "localhost" && SERVER=`hostname -f` || SERVER=${OPTIONS[0]}
   if [ ${OPTIONS[3]} == 'myisam' ]; then
     # mysqlhotcopy
-    $MYHOTCOPY -u ${OPTIONS[1]} -p ${OPTIONS[2]} --addtodest ${OPTIONS[4]} $DB_BACKDIR
+    sudo $MYHOTCOPY -u ${OPTIONS[1]} -p ${OPTIONS[2]} --addtodest ${OPTIONS[4]} $DB_DATE_BACKDIR
   else
     # mydumper
-    $MYDUMPER -o $DB_BACKDIR -r 10000 -c -e -L $DB_BACKDIR/mysql-backup.log -u ${OPTIONS[1]} -p ${OPTIONS[2]} -B ${OPTIONS[4]}
+    # -L $DB_DATE_BACKDIR/mysql-backup.log
+    $MYDUMPER -o $DB_DATE_BACKDIR -r 10000 -c -e -u ${OPTIONS[1]} -p ${OPTIONS[2]} -B ${OPTIONS[4]}
     # 压缩比-6
-    # gzip -f $BACKDIR/${OPTIONS[4]}/$DATE
+  fi
+  # mysqldump
+
+  # Check backup
+  BAK_FILENAME=${OPTIONS[4]}-${DATE//\:/-}.tar.gz
+  BAK_FILE=$DB_BACKDIR/${BAK_FILENAME}
+
+  # 是否存在有效备份
+  if [ -r $DB_DATE_BACKDIR ] && [ ! -z "$(ls $DB_DATE_BACKDIR)" ]; then
+    cd $DB_BACKDIR
+    tar -czPf $BAK_FILE $DATE
+    cd -
+    sudo rm -rf $DB_DATE_BACKDIR
+
+    #@TODO: 增加压缩发送邮箱功能
+    if  [ ${OPTIONS[5]} = "y" ]; then
+      BODY="Your backup is ready! \n\n"
+      BODY=$BODY`cd $DB_BACKDIR; md5sum ${BAK_FILE};`
+      ATTACH=` echo -n "-a ${BAK_FILE} "; `
+
+      echo -e "$BODY" | mutt -s "$SUBJECT" $ATTACH -- ${OPTIONS[6]}
+      #if [[ $? -ne 0 ]]; then
+      #  echo -e "ERROR:  Your backup could not be emailed to you! \n";
+      #else
+      #  echo -e "Your backup has been emailed to you! \n"
+      #fi
+    fi
   fi
 
   # mysqldump -h ${DBHOST[$KEY]} --user=${DBUSER[$KEY]} --password=${DBPASS[$KEY]} ${DBOPTIONS[$KEY]} $database $TABLES > \
   # $BACKDIR/$SERVER-$database-$DATE-mysqlbackup.sql
-  # gzip -f -9 $BACKDIR/$SERVER-$database-$DATE-mysqlbackup.sql
 
 	# if you have the mail program 'mutt' installed on
 	# your server, this script will have mutt attach the backup
 	# and send it to the email addresses in $EMAILS
 
-  #@TODO: 增加压缩发送邮箱功能
-	# if  [ $MAIL = "y" ]; then
-	#   BODY="Your backup is ready! \n\n"
-	#   BODY=$BODY`cd $BACKDIR; for file in *$DATE-mysqlbackup.sql.gz; do md5sum ${file};  done`
-	#   ATTACH=`for file in $BACKDIR/*$DATE-mysqlbackup.sql.gz; do echo -n "-a ${file} ";  done`
-
-	#   echo -e "$BODY" | mutt -s "$SUBJECT" $ATTACH -- $EMAILS
-	#   if [[ $? -ne 0 ]]; then
-	#     echo -e "ERROR:  Your backup could not be emailed to you! \n";
-	#   else
-	#     echo -e "Your backup has been emailed to you! \n"
-	#   fi
-	# fi
 
 	# if  [ $DELETE = "y" ]; then
 	#   OLDDBS=`cd $BACKDIR; find . -name "*-mysqlbackup.sql.gz" -mtime +$DAYS`
@@ -123,10 +149,6 @@ do
 	#   fi
 	# fi
 
-  rule 36m "The database ${OPTIONS[4]} is backed up!" "|"
-  echo ' '
-  echo ' '
+  endCommentLine "The database ${OPTIONS[4]} is backed up!"
 	unset OPTIONS
 done
-
-
