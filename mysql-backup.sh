@@ -30,6 +30,10 @@ function endCommentLine(){
 CONFIG=${1:-`dirname $0`/mysql-backup.conf}
 [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}!"
 
+OLD_DIR=${1:-`pwd`}
+EXEC_DIR=${1:-`dirname $0`}
+cd $EXEC_DIR
+
 # check of the backup directory exists
 # if not, create it
 if [ ! -d $BACKDIR ]; then
@@ -152,3 +156,5 @@ do
   endCommentLine "The database ${OPTIONS[4]} is backed up!"
 	unset OPTIONS
 done
+
+echo $OLD_DIR
