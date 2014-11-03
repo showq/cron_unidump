@@ -7,8 +7,7 @@
 # History
 #   2014/10/23-1.0
 # Help
-#  读取conf/xx.conf
-
+#  此脚本会读取$HOME/mysql-backup下的xx.conf
 #
 
 # DEBUG=true
@@ -18,7 +17,9 @@
 #######################################
 # Initialize variables
 #######################################
-OLD_DIR=${1:-`pwd`}
+#shell文件存放目录
+INIT_DIR=${1:-`pwd`}
+#执行目录
 EXEC_DIR=${1:-`dirname $0`}
 # your MySQL server's name
 SERVER=`hostname -f`
@@ -26,6 +27,8 @@ SERVER=`hostname -f`
 MYHOTCOPY=$(which mysqlhotcopy)
 # your mydumper
 MYDUMPER=$(which mydumper)
+# your mysqldump
+MYSQLDUMP=$(which mysqldump)
 
 #######################################
 # Functions
@@ -90,90 +93,87 @@ fi
 
 for f in ./conf/*.conf
 do
-	#Read db.config
+	#Read .conf file
 	INFO=`cat $f | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
 
 	#Invoke default settings
-	declare -a OPTIONS
-	OPTIONS[0]=${DBHOST:-${BACKUP_HOST}}
-	OPTIONS[1]=${DBUSER:-${BACKUP_USER}}
-	OPTIONS[2]=${DBPASS:-${BACKUP_PASS}}
-	OPTIONS[3]=${DBTYPE}
-	OPTIONS[4]=${DBNAME}
-  OPTIONS[5]=${DBMAIL:-${BACKUP_MAIL}}
-  OPTIONS[6]=${DBEMAILS:-${BACKUP_EMAILS}}
+	DBHOST=${DBHOST:-${BACKUP_HOST}}
+	DBUSER=${DBUSER:-${BACKUP_USER}}
+	DBPASS=${DBPASS:-${BACKUP_PASS}}
+	DBENGINE=${DBENGINE:-"myisam"}
+	DBNAME=${DBNAME}
+  DBMAIL=${DBMAIL:-${BACKUP_MAIL}}
+  DBMAILTO=${DBMAILTO:-${BACKUP_MAILTO}}
+  DBOPTIONS=${DBOPTIONS:-""}
 
-	if [ -z "${OPTIONS[4]}" ]; then
-    DBS=`mysqlCommand ${OPTIONS[0]} ${OPTIONS[1]} ${OPTIONS[2]} "Show databases;"`
+  DBSQLDUMP_TABLES=${DBSQLDUMP_TABLES:-""}
+
+	if [ -z "$DBNAME" ]; then
+    DBS=`mysqlCommand $DBHOST $DBUSER $DBPASS "Show databases;"`
     TITLE="Creating list of all your databases... \n\n"
     BODY="Please modify config file, Usage "
     BODY=$BODY$DBS
     alertMsg $TITLE $BODY
 	fi
 
-  # Fetch all tables
-  DBC=`mysqlCommand ${OPTIONS[0]} ${OPTIONS[1]} ${OPTIONS[2]} "use ${OPTIONS[4]}; show tables;"`
-
-  if [ -z "${DBC}" ]; then
-    alertMsg "Please check dbname" "${OPTIONS[4]} is non-exist"
+  # Fetch all tables from databases
+  DB_TABLE_NAMES=`mysqlCommand $DBHOST $DBUSER $DBPASS "use $DBNAME; show tables;"`
+  
+  # If DB_TABLE_NAMES is empty, DBNAME no exists
+  if [ -z "$DB_TABLE_NAMES" ]; then
+    alertMsg "Please check dbname" "$DBNAME is non-exist"
   fi
 
+  # 检查库中，所有的表引擎与设置一致
   CHECKTYPE=true
-  for tbl in ${DBC}
+  DBENGINE_UPPERCASE=$(echo $DBENGINE | tr '[a-z]' '[A-Z]');
+
+  for tbl in $DB_TABLE_NAMES
   do
-    myc="use ${OPTIONS[4]}; SHOW TABLE STATUS FROM ${OPTIONS[4]} WHERE name='$tbl';"
-    DBD=`mysqlCommand ${OPTIONS[0]} ${OPTIONS[1]} ${OPTIONS[2]} "$myc"`
-    if [[ -z "$DBD" ]]; then
+    #myc="use ${DBNAME}; SHOW TABLE STATUS FROM ${DBNAME} WHERE name='$tbl';"
+    myCommand="use information_schema;"
+    myCommand=$myCommand"select engine from information_schema.tables where table_schema='$DBNAME' AND table_name='$tbl';"
+    tblENGINE=`mysqlCommand $DBHOST $DBUSER $DBPASS "$myCommand"`
+
+    tblENGINE_UPPERCASE=$(echo $tblENGINE | tr '[a-z]' '[A-Z]');
+
+    if [[ "$tblENGINE_UPPERCASE" != "$DBENGINE_UPPERCASE" ]]; then
       CHECKTYPE=false
       break;
     fi
   done
 
-  if [[ !$CHECKTYPE ]]; then
+  if [[ ! $CHECKTYPE ]]; then
     alertMsg "Type is error" "Body"
   fi
 
-
-  # @TODO 忽略表
-	# filter out the tables to backup
-	# if [ -n "${DBTABLES}" ]; then
-	#   if  [ ${DBTABLESMATCH} = "exclude" ]; then
-	#     TABLES=''
-	#     for table in ${DBTABLES}; do
-	#       TABLES="$TABLES --ignore-table=$table "
-	#     done
-	#   else
-	#     TABLES=${DBTABLES}
-	#   fi
-	# fi
-
-  # 针对DRUPAL优化。不存储缓存表数据
-
-  startCommentLine "Backing up MySQL database ${OPTIONS[4]} on ${OPTIONS[0]}..."
-  DB_BACKDIR=${BACKDIR}/${OPTIONS[4]}
-  DB_DATE_BACKDIR=${DB_BACKDIR}/${DATE}
+  startCommentLine 32m "Backing up MySQL database $DBNAME on $DBHOST..."
+  DB_BACKDIR=$BACKDIR/$DBNAME
+  DB_DATE_BACKDIR=$DB_BACKDIR/$DATE
   if [ ! -d $DB_DATE_BACKDIR ]; then
-    commentLine 32m "Creating $DB_DATE_BACKDIR for ${OPTIONS[4]}..."
+    commentLine 32m "Creating $DB_DATE_BACKDIR for $DBNAME..."
     mkdir -p $DB_DATE_BACKDIR
   fi
 
-  test ${OPTIONS[0]} == "localhost" && SERVER=`hostname -f` || SERVER=${OPTIONS[0]}
-  if [ ${OPTIONS[3]} == 'myisam' ]; then
-    # mysqlhotcopy
-    sudo $MYHOTCOPY -u ${OPTIONS[1]} -p ${OPTIONS[2]} --addtodest ${OPTIONS[4]} $DB_DATE_BACKDIR
-  else
-    # mydumper
-    # -L $DB_DATE_BACKDIR/mysql-backup.log
-    $MYDUMPER -o $DB_DATE_BACKDIR -r 10000 -c -e -u ${OPTIONS[1]} -p ${OPTIONS[2]} -B ${OPTIONS[4]}
-    # 压缩比-6
-  fi
-  # mysqldump
-  # mysqldump -h ${DBHOST[$KEY]} --user=${DBUSER[$KEY]} --password=${DBPASS[$KEY]} ${DBOPTIONS[$KEY]} $database $TABLES > \
-  # $BACKDIR/$SERVER-$database-$DATE-mysqlbackup.sql
+  test $DBHOST == "localhost" && SERVER=`hostname -f` || SERVER=$DBHOST
+
+  case $DBENGINE in
+    "myisam")
+      # mysqlhotcopy
+      C="sudo $MYHOTCOPY -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $DB_DATE_BACKDIR";;
+    "mydumper")
+      # mydumper
+      C="$MYDUMPER -o $DB_DATE_BACKDIR -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
+    "mysqldump")
+      # mysqldump
+      C="$MYSQLDUMP -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$DB_DATE_BACKDIR/backup.sql";;
+  esac
+  commentLine 33m "Command: $C"
+  $C
 
   # Check backup
-  BAK_FILENAME=${OPTIONS[4]}-${DATE//\:/-}.tar.gz
-  BAK_FILE=$DB_BACKDIR/${BAK_FILENAME}
+  BAK_FILENAME=$DBNAME-${DATE//\:/-}.tar.gz
+  BAK_FILE=$DB_BACKDIR/$BAK_FILENAME
 
   # 是否存在有效备份
   if [ -r $DB_DATE_BACKDIR ] && [ ! -z "$(ls $DB_DATE_BACKDIR)" ]; then
@@ -185,12 +185,12 @@ do
     # if you have the mail program 'mutt' installed on
     # your server, this script will have mutt attach the backup
     # and send it to the email addresses in $EMAILS
-    if  [ ${OPTIONS[5]} = "y" ]; then
+    if  [ $DBMAIL = "y" ]; then
       BODY="Your backup is ready! \n\n"
-      BODY=$BODY`cd $DB_BACKDIR; md5sum ${BAK_FILE};`
-      ATTACH=` echo -n "-a ${BAK_FILE} "; `
+      BODY=$BODY`cd $DB_BACKDIR; md5sum $BAK_FILE;`
+      ATTACH=` echo -n "-a $BAK_FILE "; `
 
-      # echo -e "$BODY" | mutt -s "$SUBJECT" $ATTACH -- ${OPTIONS[6]}
+      # echo -e "$BODY" | mutt -s "$SUBJECT" $ATTACH -- $DBMAILTO
       #if [[ $? -ne 0 ]]; then
       #  echo -e "ERROR:  Your backup could not be emailed to you! \n";
       #else
@@ -199,22 +199,23 @@ do
     fi
   fi
 
+  # @TODO 默认保存1个月中，30个数据备份。
+	# if  [ $DBDELETE = "y" ]; then
+	#  OLDDBS=`cd $BACKDIR; find . -name "*-mysqlbackup.sql.gz" -mtime +$DAYS`
+	#  REMOVE=`for file in $OLDDBS; do echo -n -e "delete ${file}\n"; done` 
 
-
-
-	# if  [ $DELETE = "y" ]; then
-	#   OLDDBS=`cd $BACKDIR; find . -name "*-mysqlbackup.sql.gz" -mtime +$DAYS`
-	#   REMOVE=`for file in $OLDDBS; do echo -n -e "delete ${file}\n"; done` # will be used in FTP
-
-	#   cd $BACKDIR; for file in $OLDDBS; do rm -v ${file}; done
-	#   if  [ $DAYS = "1" ]; then
-	#     echo "Yesterday's backup has been deleted."
-	#   else
-	#     echo "The backups from $DAYS days ago and earlier have been deleted."
-	#   fi
+	#  cd $BACKDIR; for file in $OLDDBS; do rm -v ${file}; done
+	#  if  [ $DAYS = "1" ]; then
+	#    echo "Yesterday's backup has been deleted."
+	#  else
+	#    echo "The backups from $DAYS days ago and earlier have been deleted."
+	#  fi
 	# fi
 
-  endCommentLine "The database ${OPTIONS[4]} is backed up!"
-	unset OPTIONS
+  endCommentLine 32m "The database $DBNAME is backed up!"
+	unset DBHOST DBUSER DBPASS
+  unset DBENGINE DBNAME DBMAIL
+  unset DBMAILTO DB_TABLE_NAMES
 done
-cd $OLD_DIR
+cd $INIT_DIR
+#切换回目录。
