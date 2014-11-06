@@ -1,0 +1,11 @@
+#------Files------#
+#FILE
+#------Database------#
+DBHOST='localhost'
+#DBUSER=''
+#DBPASS=''
+DBENGINE='innodb'
+DBNAME='database'
+#DBMAIL=''
+#DBMAILTO=''
+DBOPTIONS=''

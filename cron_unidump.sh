@@ -10,25 +10,41 @@
 #  此脚本会读取$HOME/mysql-backup下的xx.conf
 #
 
-# DEBUG=true
-
+#######################################
+# for debug 
 # trap 'echo "before execute line:$LINENO, OPTIONS=${OPTIONS[@]}"' DEBUG
+#######################################
 
 #######################################
 # Initialize variables
 #######################################
 #shell文件存放目录
-INIT_DIR=${1:-`pwd`}
+initDir=${1:-`pwd`}
 #执行目录
-EXEC_DIR=${1:-`dirname $0`}
+execDir=${1:-`dirname $0`}
+
 # your MySQL server's name
-SERVER=`hostname -f`
+server=`hostname -f`
 # your mysqlhotcopy
-MYHOTCOPY=$(which mysqlhotcopy)
+myHotCopy=$(which mysqlhotcopy)
 # your mydumper
-MYDUMPER=$(which mydumper)
+myDumper=$(which mydumper)
 # your mysqldump
-MYSQLDUMP=$(which mysqldump)
+mysqlDump=$(which mysqldump)
+
+# file
+fileBaseDir=/var/backup/files
+# directory to backup to
+dbBaseDir=/var/backup/mysql
+# backup log
+logBaseDir=/var/log/backup
+
+# date format that is appended to filename
+dateStr=$(date -u +'%F-%T')
+dateStrSuffix=${dateStr//\:/-}
+
+
+exit
 
 #######################################
 # Functions
@@ -77,10 +93,13 @@ function successMsg(){
   endCommentLine
 }
 
+#######################################
+# Shell program
+#######################################
 # Switch execute directory
-cd $EXEC_DIR
+cd $execDir
 
-CONFIG=${1:-`dirname $0`/mysql-backup.conf}
+CONFIG=${1:-`dirname $0`/cron_unidump.conf}
 [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}!"
 
 # check of the backup directory exists
@@ -91,10 +110,80 @@ if [ ! -d $BACKDIR ]; then
 	echo "done!"
 fi
 
-for f in ./conf/*.conf
+if [ ! -d "$HOME/cron_unidump"]; then
+  alertMsg 'title' 'bod'
+  # Add example
+fi
+
+for f in $HOME/cron_unidump/*.conf
 do
 	#Read .conf file
 	INFO=`cat $f | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
+
+  NAME=${f#*/cron_unidump/}
+  NAME=${NAME%%.conf}
+  
+  # ------------------
+  # Backup files
+  # ------------------
+  #@TODO Dont backup file
+
+  SOURCE=''
+  EXCLUDE=''
+
+  TARGET=$fileBaseDir/$NAME-$dateStrSuffix.tar.bz2
+  snapFile=$logBaseDir/snapshot-$NAME-incremental
+  monthSnapFile=$SNAPFILE"-monthBase"
+  logFileName=$NAME-$dateStrSuffix.log
+  logFile=$logBaseDir/$logFileName
+
+  #@TODO Add verbose to tar command -v
+  fileBackupCommand="tar -g $SNAPFILE -jpc -f $TARGET $SOURCE $EXCLUDE"
+
+  echo "------------------"$NAME"-------------------------" >> $logFile
+  echo "Begin: "$dateStr >> $logFile
+  echo $fileBackupCommand >> $logFile
+
+  # Begin: Move incremental snapshot file to log every Sunday
+  # Then without a snapshot file, tar make full backup every week.
+  if [ $(date +%d) = '01' ] || [ $dateOfRemovalSnapshot = "ALL" ]; then
+    [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
+    $fileBackupCommand
+    cp $snapFile $monthSnapFile
+    if [ $dateOfRemovalSnapshot = "ALL" ]; then
+      echo "RemovalString = ALL" >> $logFile
+    fi
+  else
+    if [ -f $monthSnapFile ]; then
+      # back day snapshot log
+      [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
+      cp $monthSnapFile $snapFile
+      $fileBackupCommand
+    else
+      $fileBackupCommand
+      # Add month basic snapshot
+      cp $snapFile $monthSnapFile
+    fi
+  fi
+  # End Move incremental snapshot
+
+  if [ $? = "0" ]; then
+    backInfo="Backup successful!"
+    chown $chownName $baktarget
+  else
+    backInfo="Backup failed! Error #"$?
+  fi
+  echo $backInfo
+  echo $backInfo >> $logFile
+
+  echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
+
+  cp $logFile $basedir/
+  chown $chownName $basedir/$logFileName
+  echo "----------------------------------------------------" >> $logFile
+
+  # ------------------
+  # Mysql 
 
 	#Invoke default settings
 	DBHOST=${DBHOST:-${BACKUP_HOST}}
@@ -149,38 +238,38 @@ do
 
   startCommentLine 32m "Backing up MySQL database $DBNAME on $DBHOST..."
   DB_BACKDIR=$BACKDIR/$DBNAME
-  DB_DATE_BACKDIR=$DB_BACKDIR/$DATE
-  if [ ! -d $DB_DATE_BACKDIR ]; then
-    commentLine 32m "Creating $DB_DATE_BACKDIR for $DBNAME..."
-    mkdir -p $DB_DATE_BACKDIR
+  DB_dateStr_BACKDIR=$DB_BACKDIR/$dateStr
+  if [ ! -d $DB_dateStr_BACKDIR ]; then
+    commentLine 32m "Creating $DB_dateStr_BACKDIR for $DBNAME..."
+    mkdir -p $DB_dateStr_BACKDIR
   fi
 
-  test $DBHOST == "localhost" && SERVER=`hostname -f` || SERVER=$DBHOST
+  test $DBHOST == "localhost" && server=`hostname -f` || server=$DBHOST
 
   case $DBENGINE in
     "myisam")
       # mysqlhotcopy
-      C="sudo $MYHOTCOPY -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $DB_DATE_BACKDIR";;
+      C="sudo $myHotCopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $DB_dateStr_BACKDIR";;
     "mydumper")
       # mydumper
-      C="$MYDUMPER -o $DB_DATE_BACKDIR -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
+      C="$myDumper -o $DB_dateStr_BACKDIR -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
     "mysqldump")
       # mysqldump
-      C="$MYSQLDUMP -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$DB_DATE_BACKDIR/backup.sql";;
+      C="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$DB_dateStr_BACKDIR/backup.sql";;
   esac
   commentLine 33m "Command: $C"
   $C
 
   # Check backup
-  BAK_FILENAME=$DBNAME-${DATE//\:/-}.tar.gz
+  BAK_FILENAME=$DBNAME-$dateStrSuffix.tar.gz
   BAK_FILE=$DB_BACKDIR/$BAK_FILENAME
 
   # 是否存在有效备份
-  if [ -r $DB_DATE_BACKDIR ] && [ ! -z "$(ls $DB_DATE_BACKDIR)" ]; then
+  if [ -r $DB_dateStr_BACKDIR ] && [ ! -z "$(ls $DB_dateStr_BACKDIR)" ]; then
     cd $DB_BACKDIR
-    tar -czPf $BAK_FILE $DATE
+    tar -czPf $BAK_FILE $dateStr
     cd -
-    sudo rm -rf $DB_DATE_BACKDIR
+    sudo rm -rf $DB_dateStr_BACKDIR
 
     # if you have the mail program 'mutt' installed on
     # your server, this script will have mutt attach the backup
@@ -217,5 +306,6 @@ do
   unset DBENGINE DBNAME DBMAIL
   unset DBMAILTO DB_TABLE_NAMES
 done
-cd $INIT_DIR
+cd $initDir
+
 #切换回目录。
