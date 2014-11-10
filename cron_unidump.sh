@@ -6,6 +6,7 @@
 # Author Ryanlau<showq#qq.com>
 # History
 #   2014/10/23-1.0
+#   2014/11/10-2.0
 # Help
 #  此脚本会读取$HOME/mysql-backup下的xx.conf
 #
@@ -114,9 +115,9 @@ execDir=${1:-`dirname $0`}
 # your mysql server's name
 server=`hostname -f`
 # your mysqlhotcopy
-myhotcopy=$(which mysqlhotcopy)
+myHotcopy=$(which mysqlhotcopy)
 # your mydumper
-mydumper=$(which mydumper)
+myDumper=$(which mydumper)
 # your mysqldump
 mysqlDump=$(which mysqldump)
 
@@ -158,6 +159,7 @@ CONFIG=${1:-`dirname $0`/cron_unidump.conf}
 for f in $configDir/*.conf ; do
 	#Read .conf file
 	INFO=`cat $f | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
+  echo $INFO
 
   NAME=${f#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
@@ -166,7 +168,7 @@ for f in $configDir/*.conf ; do
   dbBaseDir=${dbDir:-$G_dbBaseDir}
   logBaseDir=${logDir:-$G_logBaseDir}
 
-  necessaryDirectory $fileBaseDir $dbBackDir $logBaseDir
+  necessaryDirectory $fileBaseDir $dbBaseDir $logBaseDir
 
   # ------------------
   # Backup files
@@ -297,7 +299,7 @@ for f in $configDir/*.conf ; do
   case $DBENGINE in
     "myisam")
       # mysqlhotcopy
-      C="sudo $myHotCopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $dbBackDir_date";;
+      C="sudo $myHotcopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $dbBackDir_date";;
     "mydumper")
       # mydumper
       C="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
