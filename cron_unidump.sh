@@ -16,37 +16,6 @@
 #######################################
 
 #######################################
-# Initialize variables
-#######################################
-#shell文件存放目录
-initDir=${1:-`pwd`}
-#执行目录
-execDir=${1:-`dirname $0`}
-
-# your MySQL server's name
-server=`hostname -f`
-# your mysqlhotcopy
-myHotCopy=$(which mysqlhotcopy)
-# your mydumper
-myDumper=$(which mydumper)
-# your mysqldump
-mysqlDump=$(which mysqldump)
-
-# file
-fileBaseDir=/var/backup/files
-# directory to backup to
-dbBaseDir=/var/backup/mysql
-# backup log
-logBaseDir=/var/log/backup
-
-# date format that is appended to filename
-dateStr=$(date -u +'%F-%T')
-dateStrSuffix=${dateStr//\:/-}
-
-
-exit
-
-#######################################
 # Functions
 #######################################
 function die()
@@ -93,98 +62,176 @@ function successMsg(){
   endCommentLine
 }
 
+# $1 $fileBaseDir
+# $2 $dbBackDir
+# $3 $logBaseDir
+function necessaryDirectory(){
+  # check of the backup directory exists
+  # if not, create it
+  if [ ! -d $1 ]; then
+    echo -n "Creating $1..."
+    mkdir -p $1
+    echo "done!"
+  fi
+
+  #dbBaseDir
+  if [ ! -d $2 ]; then
+    echo -n "Creating $2..."
+    mkdir -p $2
+    echo "done!"
+  fi
+
+  #logBaseDir
+  if [ ! -d $3 ]; then
+    echo -n "Creating $3..."
+    mkdir -p $3
+    echo "done!"
+  fi
+
+  if [ ! -d $1 ] || [ ! -d $2 ] || [ ! -d $3 ]; then
+    TITLE="Miss required directory"
+    BODY="Miss required directory, Please manually create"
+    alertMsg $TITLE $BODY
+  fi
+}
+
+
+#######################################
+# install shell
+if [ $0 = 'install' ]; then
+  # @TODO Move global configuration file to /etc/
+  echo 'Installed '
+fi
+
+#######################################
+# Initialize variables
+#######################################
+#shell文件存放目录
+initDir=${1:-`pwd`}
+#执行目录
+execDir=${1:-`dirname $0`}
+
+# your mysql server's name
+server=`hostname -f`
+# your mysqlhotcopy
+myhotcopy=$(which mysqlhotcopy)
+# your mydumper
+mydumper=$(which mydumper)
+# your mysqldump
+mysqlDump=$(which mysqldump)
+
+# user config file directory for each sites
+configDir=$HOME/.cron_unidump.d
+#configDir
+if [ ! -d $configDir ]; then
+  echo -n "Creating $configDir..."
+  mkdir -p $configDir
+  echo "done!"
+fi
+
+########################################
+# Basic backup file store directory
+########################################
+# file
+G_fileBaseDir=/var/backup/files
+# database
+G_dbBaseDir=/var/backup/mysql
+# log
+G_logBaseDir=/var/log/backup
+
+# date format that is appended to filename
+dateStr=$(date -u +'%F-%T')
+dateStrSuffix=${dateStr//\:/-}
+
+fileOwn='vagrant:vagrant'
+
 #######################################
 # Shell program
 #######################################
-# Switch execute directory
-cd $execDir
+# @TODO Add global configuration
 
+# Read basic configuration
 CONFIG=${1:-`dirname $0`/cron_unidump.conf}
 [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}!"
 
-# check of the backup directory exists
-# if not, create it
-if [ ! -d $BACKDIR ]; then
-	echo -n "Creating $BACKDIR..."
-	mkdir -p $BACKDIR
-	echo "done!"
-fi
 
-if [ ! -d "$HOME/cron_unidump"]; then
-  alertMsg 'title' 'bod'
-  # Add example
-fi
-
-for f in $HOME/cron_unidump/*.conf
-do
+for f in $configDir/*.conf ; do
 	#Read .conf file
 	INFO=`cat $f | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
 
-  NAME=${f#*/cron_unidump/}
+  NAME=${f#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
-  
+
+  fileBaseDir=${fileDir:-$G_fileBaseDir}
+  dbBaseDir=${dbDir:-$G_dbBaseDir}
+  logBaseDir=${logDir:-$G_logBaseDir}
+
+  necessaryDirectory $fileBaseDir $dbBackDir $logBaseDir
+
   # ------------------
   # Backup files
   # ------------------
-  #@TODO Dont backup file
 
-  SOURCE=''
-  EXCLUDE=''
+  # @TODO 增加清除条件
 
-  TARGET=$fileBaseDir/$NAME-$dateStrSuffix.tar.bz2
-  snapFile=$logBaseDir/snapshot-$NAME-incremental
-  monthSnapFile=$SNAPFILE"-monthBase"
-  logFileName=$NAME-$dateStrSuffix.log
-  logFile=$logBaseDir/$logFileName
+  if [ $SOURCE -a -d $SOURCE ]; then
+    TARGET=$fileBaseDir/$NAME-$dateStrSuffix.tar.bz2
+    snapFile=$logBaseDir/snapshot-$NAME-incremental
+    monthSnapFile=$snapFile"-monthBase"
+    logFileName=$NAME-$dateStrSuffix.log
+    logFile=$logBaseDir/$logFileName
 
-  #@TODO Add verbose to tar command -v
-  fileBackupCommand="tar -g $SNAPFILE -jpc -f $TARGET $SOURCE $EXCLUDE"
+    #@TODO Add verbose to tar command -v
+    fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
 
-  echo "------------------"$NAME"-------------------------" >> $logFile
-  echo "Begin: "$dateStr >> $logFile
-  echo $fileBackupCommand >> $logFile
+    echo "------------------"$NAME"-------------------------" >> $logFile
+    echo "Begin: "$dateStr >> $logFile
+    echo $fileBackupCommand >> $logFile
 
-  # Begin: Move incremental snapshot file to log every Sunday
-  # Then without a snapshot file, tar make full backup every week.
-  if [ $(date +%d) = '01' ] || [ $dateOfRemovalSnapshot = "ALL" ]; then
-    [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
-    $fileBackupCommand
-    cp $snapFile $monthSnapFile
-    if [ $dateOfRemovalSnapshot = "ALL" ]; then
-      echo "RemovalString = ALL" >> $logFile
-    fi
-  else
-    if [ -f $monthSnapFile ]; then
-      # back day snapshot log
+    # Begin: Move incremental snapshot file to log every Sunday
+    # Then without a snapshot file, tar make full backup every week.
+    if [ "$(date +%d)" = "01" ] || [ "$dateOfRemovalSnapshot" = "ALL" ]; then
       [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
-      cp $monthSnapFile $snapFile
       $fileBackupCommand
-    else
-      $fileBackupCommand
-      # Add month basic snapshot
       cp $snapFile $monthSnapFile
+      if [ $dateOfRemovalSnapshot = "ALL" ]; then
+        removalString="ALL"
+      else
+        removalString="Recreate month snapshot file "
+      fi
+      echo "REBASE STATUS::"$removalString >> $logFile
+    else
+      if [ -f $monthSnapFile ]; then
+        # back day snapshot log
+        [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
+        cp $monthSnapFile $snapFile
+        $fileBackupCommand
+      else
+        $fileBackupCommand
+        # Add month basic snapshot
+        cp $snapFile $monthSnapFile
+      fi
     fi
+
+    if [ $? = "0" ]; then
+      backInfo="Backup successful!"
+      chown $fileOwn $TARGET
+    else
+      backInfo="Backup failed! Error #"$?
+    fi
+    echo $backInfo
+    echo $backInfo >> $logFile
+
+    echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
+
+    cp $logFile $fileBaseDir/
+    chown $fileOwn $fileBaseDir/$logFileName
+    echo "----------------------------------------------------" >> $logFile
   fi
-  # End Move incremental snapshot
-
-  if [ $? = "0" ]; then
-    backInfo="Backup successful!"
-    chown $chownName $baktarget
-  else
-    backInfo="Backup failed! Error #"$?
-  fi
-  echo $backInfo
-  echo $backInfo >> $logFile
-
-  echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
-
-  cp $logFile $basedir/
-  chown $chownName $basedir/$logFileName
-  echo "----------------------------------------------------" >> $logFile
 
   # ------------------
   # Mysql 
-
+  # ------------------
 	#Invoke default settings
 	DBHOST=${DBHOST:-${BACKUP_HOST}}
 	DBUSER=${DBUSER:-${BACKUP_USER}}
@@ -197,6 +244,7 @@ do
 
   DBSQLDUMP_TABLES=${DBSQLDUMP_TABLES:-""}
 
+  # 没有设置DBNAME
 	if [ -z "$DBNAME" ]; then
     DBS=`mysqlCommand $DBHOST $DBUSER $DBPASS "Show databases;"`
     TITLE="Creating list of all your databases... \n\n"
@@ -210,15 +258,14 @@ do
   
   # If DB_TABLE_NAMES is empty, DBNAME no exists
   if [ -z "$DB_TABLE_NAMES" ]; then
-    alertMsg "Please check dbname" "$DBNAME is non-exist"
+    alertMsg "Please check dbname name in "$f "$DBNAME is non-exist"
   fi
 
-  # 检查库中，所有的表引擎与设置一致
+  # 检查库中，所有的表引擎与配置文件设置一致
   CHECKTYPE=true
   DBENGINE_UPPERCASE=$(echo $DBENGINE | tr '[a-z]' '[A-Z]');
 
-  for tbl in $DB_TABLE_NAMES
-  do
+  for tbl in $DB_TABLE_NAMES ; do
     #myc="use ${DBNAME}; SHOW TABLE STATUS FROM ${DBNAME} WHERE name='$tbl';"
     myCommand="use information_schema;"
     myCommand=$myCommand"select engine from information_schema.tables where table_schema='$DBNAME' AND table_name='$tbl';"
@@ -232,16 +279,17 @@ do
     fi
   done
 
-  if [[ ! $CHECKTYPE ]]; then
+  if [ ! $CHECKTYPE ]; then
     alertMsg "Type is error" "Body"
   fi
 
+  # Start backup
   startCommentLine 32m "Backing up MySQL database $DBNAME on $DBHOST..."
-  DB_BACKDIR=$BACKDIR/$DBNAME
-  DB_dateStr_BACKDIR=$DB_BACKDIR/$dateStr
-  if [ ! -d $DB_dateStr_BACKDIR ]; then
-    commentLine 32m "Creating $DB_dateStr_BACKDIR for $DBNAME..."
-    mkdir -p $DB_dateStr_BACKDIR
+  dbBackDir=$dbBaseDir/$DBNAME
+  dbBackDir_date=$dbBackDir/$dateStr
+  if [ ! -d $dbBackDir_date ]; then
+    commentLine 32m "Creating $dbBackDir_date for $DBNAME..."
+    mkdir -p $dbBackDir_date
   fi
 
   test $DBHOST == "localhost" && server=`hostname -f` || server=$DBHOST
@@ -249,35 +297,34 @@ do
   case $DBENGINE in
     "myisam")
       # mysqlhotcopy
-      C="sudo $myHotCopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $DB_dateStr_BACKDIR";;
+      C="sudo $myHotCopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $dbBackDir_date";;
     "mydumper")
       # mydumper
-      C="$myDumper -o $DB_dateStr_BACKDIR -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
+      C="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
     "mysqldump")
       # mysqldump
-      C="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$DB_dateStr_BACKDIR/backup.sql";;
+      C="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$dbBackDir_date/backup.sql";;
   esac
   commentLine 33m "Command: $C"
-  $C
+  commandMsg=$($C)
+  echo $commandMsg
 
   # Check backup
   BAK_FILENAME=$DBNAME-$dateStrSuffix.tar.gz
-  BAK_FILE=$DB_BACKDIR/$BAK_FILENAME
+  BAK_FILEPATH=$dbBackDir/$BAK_FILENAME
 
   # 是否存在有效备份
-  if [ -r $DB_dateStr_BACKDIR ] && [ ! -z "$(ls $DB_dateStr_BACKDIR)" ]; then
-    cd $DB_BACKDIR
-    tar -czPf $BAK_FILE $dateStr
-    cd -
-    sudo rm -rf $DB_dateStr_BACKDIR
+  if [ -r $dbBackDir_date ] && [ ! -z "$(ls $dbBackDir_date)" ]; then
+    tar -czPf $BAK_FILEPATH $dbBackDir_date
+    sudo rm -rf $dbBackDir_date
 
     # if you have the mail program 'mutt' installed on
     # your server, this script will have mutt attach the backup
     # and send it to the email addresses in $EMAILS
     if  [ $DBMAIL = "y" ]; then
       BODY="Your backup is ready! \n\n"
-      BODY=$BODY`cd $DB_BACKDIR; md5sum $BAK_FILE;`
-      ATTACH=` echo -n "-a $BAK_FILE "; `
+      BODY=$BODY`cd $dbBackDir; md5sum $BAK_FILEPATH;`
+      ATTACH=` echo -n "-a $BAK_FILEPATH "; `
 
       # echo -e "$BODY" | mutt -s "$SUBJECT" $ATTACH -- $DBMAILTO
       #if [[ $? -ne 0 ]]; then
@@ -302,10 +349,13 @@ do
 	# fi
 
   endCommentLine 32m "The database $DBNAME is backed up!"
+
+  # unset variables
+  # files
+  unset NAME SOURCE TARGET EXCLUDE
+
+  # mysql
 	unset DBHOST DBUSER DBPASS
   unset DBENGINE DBNAME DBMAIL
-  unset DBMAILTO DB_TABLE_NAMES
+  unset DBMAILTO DBSQLDUMP_TABLES
 done
-cd $initDir
-
-#切换回目录。
