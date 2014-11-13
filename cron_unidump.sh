@@ -39,28 +39,28 @@ function commentLine(){
 }
 #
 function endCommentLine(){
-  echo -e "\033[$1##$2 \033[0m"
+  # echo -e "\033[$1##$2 \033[0m"
   echo -e "\033[$1#################### \033[0m"
   echo " "
   echo " "
 }
 #
 function alertMsg(){
-  startCommentLine $1
+  startCommentLine 31m $1
   commentLine 31m $2
-  endCommentLine
+  endCommentLine 31m
 }
 #
 function noticeMsg(){
-  startCommentLine $1
+  startCommentLine 34m $1
   commentLine 34m $2
-  endCommentLine
+  endCommentLine 34m
 }
 #
 function successMsg(){
-  startCommentLine $1
+  startCommentLine 32m $1
   commentLine 32m $2
-  endCommentLine
+  endCommentLine 32m
 }
 
 # $1 $fileBaseDir
@@ -159,10 +159,12 @@ CONFIG=${1:-`dirname $0`/cron_unidump.conf}
 for f in $configDir/*.conf ; do
 	#Read .conf file
 	INFO=`cat $f | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
-  echo $INFO
+  # echo $INFO
 
   NAME=${f#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
+
+  startCommentLine 32m "Start processing based on $f"
 
   fileBaseDir=${fileDir:-$G_fileBaseDir}
   dbBaseDir=${dbDir:-$G_dbBaseDir}
@@ -173,10 +175,10 @@ for f in $configDir/*.conf ; do
   # ------------------
   # Backup files
   # ------------------
-
   # @TODO 增加清除条件
 
   if [ $SOURCE -a -d $SOURCE ]; then
+    commentLine 32m "------------------ File backup begin"
     TARGET=$fileBaseDir/$NAME-$dateStrSuffix.tar.bz2
     snapFile=$logBaseDir/snapshot-$NAME-incremental
     monthSnapFile=$snapFile"-monthBase"
@@ -185,6 +187,8 @@ for f in $configDir/*.conf ; do
 
     #@TODO Add verbose to tar command -v
     fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
+
+    commentLine 33m "File backup command: $fileBackupCommand"
 
     echo "------------------"$NAME"-------------------------" >> $logFile
     echo "Begin: "$dateStr >> $logFile
@@ -221,7 +225,7 @@ for f in $configDir/*.conf ; do
     else
       backInfo="Backup failed! Error #"$?
     fi
-    echo $backInfo
+    commentLine 32m "$backInfo"
     echo $backInfo >> $logFile
 
     echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
@@ -229,6 +233,7 @@ for f in $configDir/*.conf ; do
     cp $logFile $fileBaseDir/
     chown $fileOwn $fileBaseDir/$logFileName
     echo "----------------------------------------------------" >> $logFile
+    commentLine 32m "------------------ File backup complete"
   fi
 
   # ------------------
@@ -282,11 +287,14 @@ for f in $configDir/*.conf ; do
   done
 
   if [ ! $CHECKTYPE ]; then
-    alertMsg "Type is error" "Body"
+    TITLE="table engine have differences on database "$DBNAME
+    BODY="You can change the table engine to "$DBENGINE_UPPERCASE
+    alertMsg $TITLE $BODY
   fi
 
   # Start backup
-  startCommentLine 32m "Backing up MySQL database $DBNAME on $DBHOST..."
+  commentLine 32m "------------------ DB begin"
+  commentLine 32m "Backing up MySQL database $DBNAME on $DBHOST..."
   dbBackDir=$dbBaseDir/$DBNAME
   dbBackDir_date=$dbBackDir/$dateStr
   if [ ! -d $dbBackDir_date ]; then
@@ -309,7 +317,7 @@ for f in $configDir/*.conf ; do
   esac
   commentLine 33m "Command: $C"
   commandMsg=$($C)
-  echo $commandMsg
+  commentLine 32m "$commandMsg"
 
   # Check backup
   BAK_FILENAME=$DBNAME-$dateStrSuffix.tar.gz
@@ -350,6 +358,7 @@ for f in $configDir/*.conf ; do
 	#  fi
 	# fi
 
+  commentLine 32m "------------------ DB complete"
   endCommentLine 32m "The database $DBNAME is backed up!"
 
   # unset variables
