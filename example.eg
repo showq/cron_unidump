@@ -1,0 +1,11 @@
+####File
+SOURCE='/var/www/html/example'
+####Mysql
+DBHOST='localhost'
+#DBUSER=''
+#DBPASS=''
+DBENGINE='innodb'
+DBNAME='database'
+#DBMAIL=''
+#DBMAILTO=''
+DBOPTIONS=''
