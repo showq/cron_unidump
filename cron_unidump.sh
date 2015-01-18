@@ -8,7 +8,7 @@
 #   2014/10/23-1.0
 #   2014/11/10-2.0
 # Help
-#  此脚本会读取$HOME/mysql-backup下的xx.conf
+#  此脚本会读取$HOME/.cron_unidump.d目录下的[.*].conf的信息，并执行命令
 #
 #######################################
 # for debug
@@ -27,7 +27,7 @@ function die(){
 function mysqlCommand(){
   echo `mysql -h $1 --user=$2 --password=$3 -Bse "$4"`;
 }
-function getColor(){
+function getColorByType(){
   case $1 in
     'alert')
       COLOR="31m"
@@ -42,18 +42,18 @@ function getColor(){
 }
 #
 function startCommentLine(){
-  getColor $1
+  getColorByType $1
   echo -e "\033[$COLOR#################### \033[0m"
   echo -e "\033[$COLOR# $2 \033[0m"
 }
 #
 function commentLine(){
-  getColor $1
+  getColorByType $1
   echo -e "\033[$COLOR# $2 \033[0m"
 }
 #
 function endCommentLine(){
-  getColor $1
+  getColorByType $1
   # echo -e "\033[$1##$2 \033[0m"
   echo -e "\033[$COLOR#################### \033[0m"
   echo " "
@@ -179,7 +179,7 @@ function unidump_backup_db(){
   # Start backup database
   commentLine 'notice' "------------------ DB begin"
   commentLine 'notice' "Backing up MySQL database $DBNAME on $DBHOST..."
-  dbBackDir=$dbBaseDir/$DBNAME
+  dbBackDir=$dbBaseDir/$1
   dbBackDir_date=$dbBackDir/$dateStr
   if [ ! -d $dbBackDir_date ]; then
     commentLine 'notice' "Creating $dbBackDir_date for $DBNAME..."
@@ -200,9 +200,9 @@ function unidump_backup_db(){
       dumpCommand="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$dbBackDir_date/backup.sql";;
   esac
 
-  commentLine 33m "Command: $dumpCommand"
+  commentLine 'notice' "Command: $dumpCommand"
   commandMsg=$($dumpCommand)
-  commentLine 32m "$commandMsg"
+  commentLine 'notice' "$commandMsg"
 
   # Check backup
   BAK_FILENAME=$DBNAME-$dateStrSuffix.tar.gz
@@ -244,7 +244,7 @@ function unidump_backup_db(){
   #  fi
   # fi
 
-  commentLine 'notice' "------------------ DB complete"
+  commentLine 'success' "------------------ DB complete"
   commentLine 'success' "The database $DBNAME is backed up!"
   endCommentLine 'success'
 
@@ -308,7 +308,7 @@ function unidump_backup_file(){
     else
       backInfo="Backup failed! Error #"$?
     fi
-    commentLine 32m "$backInfo"
+    commentLine 'notice' "$backInfo"
     echo $backInfo >> $logFile
 
     echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
@@ -316,16 +316,22 @@ function unidump_backup_file(){
     cp $logFile $fileBaseDir/
     chown $fileOwn $fileBaseDir/$logFileName
     echo "----------------------------------------------------\n" >> $logFile
-    commentLine 32m "------------------ File backup complete"
+    commentLine 'notice' "------------------ File backup complete"
   fi
   # unset variables
   unset NAME SOURCE TARGET EXCLUDE
 }
 #
 function unidump_backup(){
-  unidump_initEnv
 
   confFile="$configDir/$2.conf"
+
+  if [[ ! -f $confFile ]]; then
+    # 配置文件不存在.你可以使用命令[./cron_unidump.sh add name]增加一个配置文件。
+    alertMsg "Config file ${confFile} is no exists" "You can use [add name]"
+    exit 1
+  fi
+
   INFO=`cat $confFile | grep -v ^$ | sed -n "s/\s\+//;/^#/d;p" ` && eval "$INFO"
   NAME=${confFile#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
@@ -338,9 +344,10 @@ function unidump_backup(){
 
   necessaryDirectory $fileBaseDir $dbBaseDir $logBaseDir
 
-  # type
+  # backup type
   case $1 in
     'db')
+      unidump_backup_db_check $2
       unidump_backup_db $2
       ;;
     'file')
@@ -366,7 +373,6 @@ function unidump_backup(){
 # $3 date
 #   latest or date
 function unidump_restore(){
-  unidump_initEnv
 
   alertMsg 'Restore' 'Restore $1 at $2'
 }
@@ -412,31 +418,44 @@ fileOwn='vagrant:vagrant'
 # install this shell scripts
 # example:
 # ./cron_unidump.sh install
-# ./cron_unidump.sh backup $name
-#   backup $configName
-# ./cron_unidump.sh restore $name $date
-#
+# ./cron_unidump.sh add
+# ./cron_unidump.sh backup $type $configName
+# ./cron_unidump.sh restore $configName $date
+# ./cron_unidump.sh list
 # @TODO
-# ./cron_unidump.sh list $name
+# ./cron_unidump.sh edit $name
+# ./cron_unidump.sh show $name
+unidump_initEnv
 
 case $1 in
   'install')
     # Copy global config, set custom directory
+    # @TODO: 增加判断,避免重复安装
+
     cp $initDir/cron_unidump.conf $HOME/.cron_unidump.conf
     createDirectory $HOME/.cron_unidump.d
     cp $initDir/example.eg $HOME/.cron_unidump.d/example.eg
 
     successMsg 'Success' 'Successfully installed'
+
     ;;
   'uninstall')
+
+    # @TODO: 增加卸载确认
     rm -r $HOME/.cron_unidump.d
     rm $HOME/.cron_unidump.conf
     successMsg 'Uninstalled' 'Successfully uninstalled'
+
     ;;
-  'create')
+  'add')
+    # Add new conf
+    # @TODO: 如果配置文件重名增加判断
+    # @TODO: 增加crontab支持。直接进入crontab.提供必要参数
+    # @TODO: 文件的备份目录。数据库的参数等？
     cp $HOME/.cron_unidump.d/example.eg $HOME/.cron_unidump.d/$2.conf
 
-    successMsg 'Success' 'Successfully created $2'
+    successMsg 'Success' 'Successfully created $2, You must check the file and change it to real variables'
+
     ;;
   'backup')
     # db, file, all
@@ -445,13 +464,33 @@ case $1 in
     ;;
   'restore')
     # Required args
-    # @TODO 只恢复数据库
-    # ./cron_unidump.sh db [name] [date]
+    # ./cron_unidump.sh restore [name] [date]
+    # @TODO,显示一个列表。用户自己选择恢复时间。可以指定时间段
     unidump_restore $2 $3
 
     ;;
   'list')
     # --all
-    echo 'List all $2'
+    commentLine 'success' "Current config file"
+    # @TODO: 可以在配置文件中增加描述，在显示时。便于阅读
+    for i in $HOME/.cron_unidump.d/*.conf; do
+      i=${i#*/.cron_unidump.d/}
+      echo ${i%%.conf}
+    done
+
+    ;;
+  'edit')
+    commentLine 'success' "You edit config file that you use the code editor "
+    vi "$configDir/$2.conf"
+
+    ;;
+  'show')
+    confFile="$configDir/$2.conf"
+    commentLine 'success' "The following content is the config file [${confFile}] info"
+    cat $confFile
+
+    ;;
+  'help')
+    commentLine "alert" "The command support is upcoming!"
     ;;
 esac
