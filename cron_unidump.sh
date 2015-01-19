@@ -430,9 +430,13 @@ unidump_initEnv
 case $1 in
   'install')
     # Copy global config, set custom directory
-    # @TODO: 增加判断,避免重复安装
+    glob_conf="$HOME/.cron_unidump.conf"
+    if [[ -f $glob_conf ]]; then
+      alertMsg "It is installed" "Has been installed, please do not repeat installation"
+      exit 1
+    fi
 
-    cp $initDir/cron_unidump.conf $HOME/.cron_unidump.conf
+    cp $initDir/cron_unidump.conf
     createDirectory $HOME/.cron_unidump.d
     cp $initDir/example.eg $HOME/.cron_unidump.d/example.eg
 
@@ -440,20 +444,25 @@ case $1 in
 
     ;;
   'uninstall')
-
-    # @TODO: 增加卸载确认
-    rm -r $HOME/.cron_unidump.d
-    rm $HOME/.cron_unidump.conf
-    successMsg 'Uninstalled' 'Successfully uninstalled'
+    read -p "Do you confirm to uninstall[y/n]:" confirm
+    if [[ $confirm = 'y' ]]; then
+      rm -r $HOME/.cron_unidump.d
+      rm $HOME/.cron_unidump.conf
+      successMsg 'Uninstalled' 'Successfully uninstalled'
+    else
+      successMsg 'Canceled' 'It is canceled'
+    fi
 
     ;;
   'add')
     # Add new conf
     # @TODO: 如果配置文件重名增加判断
-    # @TODO: 增加crontab支持。直接进入crontab.提供必要参数
+    #
     # @TODO: 文件的备份目录。数据库的参数等？
     cp $HOME/.cron_unidump.d/example.eg $HOME/.cron_unidump.d/$2.conf
 
+    # @TODO: 增加crontab支持。直接进入crontab.提供必要参数
+    #
     successMsg 'Success' 'Successfully created $2, You must check the file and change it to real variables'
 
     ;;
@@ -492,5 +501,6 @@ case $1 in
     ;;
   'help')
     commentLine "alert" "The command support is upcoming!"
+
     ;;
 esac
