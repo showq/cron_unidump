@@ -434,7 +434,7 @@ fileOwn='vagrant:vagrant'
 # ./cron_unidump.sh edit $name
 # ./cron_unidump.sh show $name
 
-if [[ test $1 != "install" ]]; then
+if [[ $1 != "install" ]]; then
   unidump_initEnv
 fi
 
