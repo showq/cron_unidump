@@ -433,7 +433,10 @@ fileOwn='vagrant:vagrant'
 # @TODO
 # ./cron_unidump.sh edit $name
 # ./cron_unidump.sh show $name
-unidump_initEnv
+
+if [[ $i != 'install' ]]; then
+  unidump_initEnv
+fi
 
 case $1 in
   'install')
