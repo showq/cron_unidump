@@ -192,12 +192,13 @@ function unidump_backup_db(){
     "myisam")
       # mysqlhotcopy
       dumpCommand="sudo $myHotcopy -u $DBUSER -p $DBPASS --addtodest $DBNAME$DBOPTIONS $dbBackDir_date";;
-    "mydumper")
-      # mydumper
-      dumpCommand="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
     "mysqldump")
       # mysqldump
       dumpCommand="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$dbBackDir_date/backup.sql";;
+    *)
+      # mydumper
+      dumpCommand="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER -p $DBPASS -B $DBNAME $DBOPTIONS";;
+
   esac
 
   commentLine 'notice' "Command: $dumpCommand"
@@ -230,20 +231,6 @@ function unidump_backup_db(){
       #fi
     fi
   fi
-
-  # @TODO 默认保存1个月中，30个数据备份。
-  # if  [ $DBDELETE = "y" ]; then
-  #  OLDDBS=`cd $BACKDIR; find . -name "*-mysqlbackup.sql.gz" -mtime +$DAYS`
-  #  REMOVE=`for file in $OLDDBS; do echo -n -e "delete ${file}\n"; done`
-
-  #  cd $BACKDIR; for file in $OLDDBS; do rm -v ${file}; done
-  #  if  [ $DAYS = "1" ]; then
-  #    echo "Yesterday's backup has been deleted."
-  #  else
-  #    echo "The backups from $DAYS days ago and earlier have been deleted."
-  #  fi
-  # fi
-
   commentLine 'success' "------------------ DB complete"
   commentLine 'success' "The database $DBNAME is backed up!"
   endCommentLine 'success'
@@ -321,14 +308,13 @@ function unidump_backup_file(){
   # unset variables
   unset NAME SOURCE TARGET EXCLUDE
 }
-#
-function unidump_backup(){
 
-  confFile="$configDir/$2.conf"
+function unidump_readConfig(){
+  confFile="$configDir/$1.conf"
 
   if [[ ! -f $confFile ]]; then
     # 配置文件不存在.你可以使用命令[./cron_unidump.sh add name]增加一个配置文件。
-    alertMsg "Config file ${confFile} is no exists" "You can use [add name]"
+    alertMsg "Config file ${confFile} is no exists" "You can use [add] command"
     exit 1
   fi
 
@@ -336,14 +322,17 @@ function unidump_backup(){
   NAME=${confFile#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
 
-  startCommentLine 'notice' "Start processing based on $confFile"
-
   fileBaseDir=${fileDir:-$DEFAULT_fileBaseDir}
   dbBaseDir=${dbDir:-$DEFAULT_dbBaseDir}
   logBaseDir=${logDir:-$DEFAULT_logBaseDir}
 
   necessaryDirectory $fileBaseDir $dbBaseDir $logBaseDir
+}
 
+#
+function unidump_backup(){
+  unidump_readConfig $2
+  startCommentLine 'notice' "Start processing based on $confFile"
   # backup type
   case $1 in
     'db')
@@ -375,6 +364,25 @@ function unidump_backup(){
 function unidump_restore(){
 
   alertMsg 'Restore' 'Restore $1 at $2'
+}
+
+# 清除多余数据库备份
+function unidump_clear_db(){
+  read -p "Do you confirm delete database backup file ? [y/n]:" confirm
+  if [[ $confirm = 'n' ]]; then
+    exit 1;
+  else
+    # if  [ $DBDELETE = "y" ]; then
+     OLDDBS=`cd $BACKDIR; find . -name "*-mysqlbackup.sql.gz" -mtime +$2`
+     REMOVE=`for file in $OLDDBS; do echo -n -e "delete ${file}\n"; done`
+
+    #  cd $BACKDIR; for file in $OLDDBS; do rm -v ${file}; done
+    if  [ $2 = "1" ]; then
+     echo "Yesterday's backup has been deleted."
+    else
+     echo "The backups from $2 days ago and earlier have been deleted."
+    fi
+  fi
 }
 
 #######################################
@@ -429,14 +437,14 @@ unidump_initEnv
 
 case $1 in
   'install')
-    # Copy global config, set custom directory
+
     glob_conf="$HOME/.cron_unidump.conf"
     if [[ -f $glob_conf ]]; then
       alertMsg "It is installed" "Has been installed, please do not repeat installation"
       exit 1
     fi
-
-    cp $initDir/cron_unidump.conf
+    # Copy global config, set custom directory
+    cp $initDir/cron_unidump.conf $glob_conf
     createDirectory $HOME/.cron_unidump.d
     cp $initDir/example.eg $HOME/.cron_unidump.d/example.eg
 
@@ -456,13 +464,15 @@ case $1 in
     ;;
   'add')
     # Add new conf
-    # @TODO: 如果配置文件重名增加判断
-    #
-    # @TODO: 文件的备份目录。数据库的参数等？
-    cp $HOME/.cron_unidump.d/example.eg $HOME/.cron_unidump.d/$2.conf
+    addConf="$HOME/.cron_unidump.d/$2.conf"
+    if [[ -f $addConf ]]; then
+      alertMsg "Duplicate name" "$addConf is exists, Please use other name"
+      exit 1;
+    fi
 
-    # @TODO: 增加crontab支持。直接进入crontab.提供必要参数
-    #
+    cp $HOME/.cron_unidump.d/example.eg $addConf
+    vim $addConf
+
     successMsg 'Success' 'Successfully created $2, You must check the file and change it to real variables'
 
     ;;
@@ -474,9 +484,31 @@ case $1 in
   'restore')
     # Required args
     # ./cron_unidump.sh restore [name] [date]
-    # @TODO,显示一个列表。用户自己选择恢复时间。可以指定时间段
-    unidump_restore $2 $3
+    # @TODO 已支持可选文件列表。需要控制显示数量。
+    # 还要实现恢复指定数据库的功能
+    noticeMsg "Notice:" "Only support database restore!";
+    unidump_readConfig $2
 
+    dbList='Please select following file:'
+    dbArr=()
+    i=0
+    for file in $dbBaseDir/$2/*; do
+      dbList="$dbList
+$(($ai1)))$file"
+      dbArr[i]=$file
+      i=$(($i+1))
+    done
+
+    read -p "$dbList
+:" selectNum
+    selectFile=${dbArr[$selectNum]}
+
+    unidump_restore $2 $selectFile
+
+    ;;
+  'clear_db')
+    # Clear database
+    unidump_clear_db $2 $3
     ;;
   'list')
     # --all
@@ -490,7 +522,7 @@ case $1 in
     ;;
   'edit')
     commentLine 'success' "You edit config file that you use the code editor "
-    vi "$configDir/$2.conf"
+    vim "$configDir/$2.conf"
 
     ;;
   'show')
@@ -502,5 +534,13 @@ case $1 in
   'help')
     commentLine "alert" "The command support is upcoming!"
 
+    ;;
+  'check')
+    #@TODO check config file
+    commentLine "alert" "The command support is upcoming!"
+
+    ;;
+  *)
+    commentLine "alert" "Only support: install, uninstall, add, backup, restore, list, edit, show"
     ;;
 esac
