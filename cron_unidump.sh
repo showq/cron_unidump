@@ -388,8 +388,10 @@ function unidump_clear_db(){
 #######################################
 # Variables
 #######################################
+PATH="$PATH:/usr/local/bin"
 # shell文件存放的根目录
 initDir=${initDir:-`pwd`}
+
 
 # 执行目录
 # execDir=$(dirname $0)
@@ -440,7 +442,6 @@ fi
 
 case $1 in
   'install')
-
     glob_conf="$HOME/.cron_unidump.conf"
     if [[ -f $glob_conf ]]; then
       alertMsg "It is installed" "Has been installed, please do not repeat installation"
@@ -497,7 +498,7 @@ case $1 in
     i=0
     for file in $dbBaseDir/$2/*; do
       dbList="$dbList
-$(($ai1)))$file"
+$(($i+1)) )$file"
       dbArr[i]=$file
       i=$(($i+1))
     done
@@ -512,6 +513,7 @@ $(($ai1)))$file"
   'clear_db')
     # Clear database
     unidump_clear_db $2 $3
+
     ;;
   'list')
     # --all
