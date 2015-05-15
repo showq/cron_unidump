@@ -107,6 +107,7 @@ function unidump_initEnv(){
   CONFIG="$HOME/.cron_unidump.conf"
   [ -f "$CONFIG" ] && . "$CONFIG" || die "Could not load configuration file ${CONFIG}! You can run ./cron_unidump.sh install"
   configDir="$HOME/.cron_unidump.d"
+  fileOwn=${fileOwn:-${BACKUP_FILEOWN}}
 }
 # ------------------
 # Check mysql config
@@ -410,17 +411,15 @@ mysqlDump=$(which mysqldump)
 # Basic backup file store directory
 ########################################
 # file
-DEFAULT_fileBaseDir=/var/backup/files
+DEFAULT_fileBaseDir=/var/www/html/backup/files
 # database
-DEFAULT_dbBaseDir=/var/backup/mysql
+DEFAULT_dbBaseDir=/var/www/html/backup/mysql
 # log
 DEFAULT_logBaseDir=/var/log/backup
 
 # date format that is appended to filename
 dateStr=$(date -u +'%F-%T')
 dateStrSuffix=${dateStr//\:/-}
-
-fileOwn='vagrant:vagrant'
 
 #######################################
 # Shell Body
@@ -451,6 +450,9 @@ case $1 in
     cp $initDir/cron_unidump.conf $glob_conf
     createDirectory $HOME/.cron_unidump.d
     cp $initDir/example.eg $HOME/.cron_unidump.d/example.eg
+
+    # @TODO: Add to /usr/bin
+    # ln -s $initDir/
 
     successMsg 'Success' 'Successfully installed'
 
