@@ -180,7 +180,7 @@ function unidump_backup_db(){
   # Start backup database
   commentLine 'notice' "------------------ DB begin"
   commentLine 'notice' "Backing up MySQL database $DBNAME on $DBHOST..."
-  dbBackDir=$dbBaseDir/$1
+  dbBackDir=$dbBaseDir
   dbBackDir_date=$dbBackDir/$dateStr
   if [ ! -d $dbBackDir_date ]; then
     commentLine 'notice' "Creating $dbBackDir_date for $DBNAME..."
@@ -292,7 +292,7 @@ function unidump_backup_file(){
 
     if [ $? = "0" ]; then
       backInfo="Backup successful!"
-      chown $fileOwn $TARGET
+      sudo chown $fileOwn $TARGET
     else
       backInfo="Backup failed! Error #"$?
     fi
@@ -302,7 +302,7 @@ function unidump_backup_file(){
     echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
 
     cp $logFile $fileBaseDir/
-    chown $fileOwn $fileBaseDir/$logFileName
+    sudo chown $fileOwn $fileBaseDir/$logFileName
     echo "----------------------------------------------------\n" >> $logFile
     commentLine 'notice' "------------------ File backup complete"
   fi
@@ -323,9 +323,9 @@ function unidump_readConfig(){
   NAME=${confFile#*/.cron_unidump.d/}
   NAME=${NAME%%.conf}
 
-  fileBaseDir=${fileDir:-$DEFAULT_fileBaseDir}
-  dbBaseDir=${dbDir:-$DEFAULT_dbBaseDir}
-  logBaseDir=${logDir:-$DEFAULT_logBaseDir}
+  fileBaseDir=${fileDir:-$DEFAULT_fileBaseDir}/$NAME
+  dbBaseDir=${dbDir:-$DEFAULT_dbBaseDir}/$NAME
+  logBaseDir=${logDir:-$DEFAULT_logBaseDir}/$NAME
 
   necessaryDirectory $fileBaseDir $dbBaseDir $logBaseDir
 }
@@ -551,3 +551,7 @@ $(($i+1)) )$file"
     commentLine "alert" "Only support: install, uninstall, add, backup, restore, list, edit, show"
     ;;
 esac
+
+
+
+# ln -s ~/scripts/cron_unidump/cron_unidump.sh cron_unidump
