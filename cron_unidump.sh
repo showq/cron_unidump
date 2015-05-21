@@ -207,7 +207,7 @@ function unidump_backup_db(){
   commentLine 'notice' "$commandMsg"
 
   # Check backup
-  BAK_FILENAME=$DBNAME-$dateStrSuffix.tar.gz
+  BAK_FILENAME="DB-"$DBNAME-$dateStrSuffix.tar.gz
   BAK_FILEPATH=$dbBackDir/$BAK_FILENAME
 
   # Mail 发送
@@ -250,7 +250,7 @@ function unidump_backup_file(){
   # @TODO 增加清除条件
   if [ $SOURCE -a -d $SOURCE ]; then
     commentLine 32m "------------------ File backup begin"
-    TARGET=$fileBaseDir/$NAME-$dateStrSuffix.tar.bz2
+    TARGET=$fileBaseDir/"FILE-"$NAME-$dateStrSuffix.tar.bz2
     snapFile=$logBaseDir/snapshot-$NAME-incremental
     monthSnapFile=$snapFile"-monthBase"
     logFileName=$NAME-$dateStrSuffix.log
@@ -411,9 +411,9 @@ mysqlDump=$(which mysqldump)
 # Basic backup file store directory
 ########################################
 # file
-DEFAULT_fileBaseDir=/var/www/html/backup/files
+DEFAULT_fileBaseDir=/var/www/html/backup
 # database
-DEFAULT_dbBaseDir=/var/www/html/backup/mysql
+DEFAULT_dbBaseDir=/var/www/html/backup
 # log
 DEFAULT_logBaseDir=/var/log/backup
 
@@ -554,4 +554,4 @@ esac
 
 
 
-# ln -s ~/scripts/cron_unidump/cron_unidump.sh cron_unidump
+# ln -s ~/scripts/cron_unidump/cron_unidump.sh /usr/bin/cron_unidump
