@@ -122,7 +122,6 @@ function unidump_backup_db_check(){
   DBMAIL=${DBMAIL:-${BACKUP_MAIL}}
   DBMAILTO=${DBMAILTO:-${BACKUP_MAILTO}}
   DBOPTIONS=${DBOPTIONS:-""}
-
   DBSQLDUMP_TABLES=${DBSQLDUMP_TABLES:-""}
 
   CHECK_RESULT=true
@@ -214,6 +213,7 @@ function unidump_backup_db(){
   # 是否存在有效备份
   if [ -r $dbBackDir_date ] && [ ! -z "$(ls $dbBackDir_date)" ]; then
     tar -czPf $BAK_FILEPATH $dbBackDir_date
+    #解压时 tar -zvjPf .tar.bz2
     sudo rm -rf $dbBackDir_date
 
     # if you have the mail program 'mutt' installed on
@@ -248,16 +248,21 @@ function unidump_backup_file(){
   # Backup files
   # ------------------
   # @TODO 增加清除条件
+  INTERVAL_DAYS=${INTERVAL_DAYS:-${BACKUP_INTERVAL_DAYS}}
+
   if [ $SOURCE -a -d $SOURCE ]; then
     commentLine 32m "------------------ File backup begin"
     TARGET=$fileBaseDir/"FILE-"$NAME-$dateStrSuffix.tar.bz2
     snapFile=$logBaseDir/snapshot-$NAME-incremental
-    monthSnapFile=$snapFile"-monthBase"
+    intervalSnapFile=$snapFile"-intervalBase"
     logFileName=$NAME-$dateStrSuffix.log
     logFile=$logBaseDir/$logFileName
 
     #@TODO Add verbose to tar command -v
     fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
+    if [[ -d $EXTRA_SOURCE ]]; then
+      fileBackupCommand = "$fileBackupCommand $EXTRA_SOURCE"
+    fi
 
     commentLine 33m "File backup command: $fileBackupCommand"
 
@@ -265,28 +270,35 @@ function unidump_backup_file(){
     echo "Begin: "$dateStr >> $logFile
     echo $fileBackupCommand >> $logFile
 
-    # Begin: Move incremental snapshot file to log every Sunday
-    # Then without a snapshot file, tar make full backup every week.
-    if [ "$(date +%d)" = "01" ] || [ "$dateOfRemovalSnapshot" = "ALL" ]; then
+    fullBackup=true
+    if [[ -f $intervalSnapFile ]]; then
+      lastBackupTime=$(stat $intervalSnapFile | grep Modify | awk '{print $2}' )
+      t1=$(date -d "$lastBackupTime" +%s)
+      t2=$(date -d "$INTERVAL_DAYS days ago" +%s)
+      if [[ $t1 -gt $t2 ]]; then
+        fullBackup=false
+      fi
+    fi
+
+    if [ $fullBackup ] || [ "$dateOfRemovalSnapshot" = "ALL" ]; then
       [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
       $fileBackupCommand
-      cp $snapFile $monthSnapFile
+      cp $snapFile $intervalSnapFile
       if [ $dateOfRemovalSnapshot = "ALL" ]; then
         removalString="ALL"
       else
-        removalString="Recreate month snapshot file "
+        removalString="Recreate snapshot file "
       fi
       echo "REBASE STATUS::"$removalString >> $logFile
     else
-      if [ -f $monthSnapFile ]; then
+      if [ -f $intervalSnapFile ]; then
         # back day snapshot log
         [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
-        cp $monthSnapFile $snapFile
+        cp $intervalSnapFile $snapFile
         $fileBackupCommand
       else
         $fileBackupCommand
-        # Add month basic snapshot
-        cp $snapFile $monthSnapFile
+        cp $snapFile $intervalSnapFile
       fi
     fi
 
