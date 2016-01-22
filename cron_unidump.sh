@@ -204,6 +204,8 @@ function unidump_backup_db(){
   commentLine 'notice' "Command: $dumpCommand"
   commandMsg=$($dumpCommand)
   commentLine 'notice' "$commandMsg"
+  # Clear DBNAME backspace
+  DBNAME=${DBNAME// /_}
 
   # Check backup
   BAK_FILENAME="DB-"$DBNAME-$dateStrSuffix.tar.gz
@@ -212,7 +214,7 @@ function unidump_backup_db(){
   # Mail 发送
   # 是否存在有效备份
   if [ -r $dbBackDir_date ] && [ ! -z "$(ls $dbBackDir_date)" ]; then
-    tar -czPf ${BAK_FILEPATH// /_} $dbBackDir_date
+    tar -czPf $BAK_FILEPATH $dbBackDir_date
     #解压时 tar -zvjPf .tar.bz2
     sudo rm -rf $dbBackDir_date
 
