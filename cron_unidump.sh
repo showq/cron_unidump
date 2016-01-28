@@ -286,7 +286,7 @@ function unidump_backup_file(){
       [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
       $fileBackupCommand
       cp $snapFile $intervalSnapFile
-      if [ $dateOfRemovalSnapshot = "ALL" ]; then
+      if [ "$dateOfRemovalSnapshot" = "ALL" ]; then
         removalString="ALL"
       else
         removalString="Recreate snapshot file "
@@ -453,6 +453,8 @@ if [[ $1 != "install" ]]; then
   unidump_initEnv
 fi
 
+confFile="$HOME/.cron_unidump.d/$2.conf"
+
 case $1 in
   'install')
     glob_conf="$HOME/.cron_unidump.conf"
@@ -465,8 +467,11 @@ case $1 in
     createDirectory $HOME/.cron_unidump.d
     cp $initDir/example.eg $HOME/.cron_unidump.d/example.eg
 
+    sudo chmod +x $initDir/cron_unidump.sh
+
     # @TODO: Add to /usr/bin
     # ln -s $initDir/
+    ln -s $initDir/cron_unidump.sh /usr/bin/cron_unidump
 
     successMsg 'Success' 'Successfully installed'
 
@@ -482,20 +487,45 @@ case $1 in
     fi
 
     ;;
+  'list')
+    # --all
+    commentLine 'success' "Current config file:"
+    # @TODO: 可以在配置文件中增加描述，在显示时。便于阅读
+    for i in $HOME/.cron_unidump.d/*.conf; do
+      i=${i#*/.cron_unidump.d/}
+      echo ${i%%.conf}
+    done
+
+    ;;
   'add')
     # Add new conf
-    addConf="$HOME/.cron_unidump.d/$2.conf"
-    if [[ -f $addConf ]]; then
-      alertMsg "Duplicate name" "$addConf is exists, Please use other name"
+    if [[ -f $confFile ]]; then
+      alertMsg "Duplicate name" "$confFile is exists, Please use other name"
       exit 1;
     fi
 
-    cp $HOME/.cron_unidump.d/example.eg $addConf
-    vim $addConf
+    cp $HOME/.cron_unidump.d/example.eg $confFile
+    vim $confFile
 
     successMsg 'Success' 'Successfully created $2, You must check the file and change it to real variables'
 
     ;;
+  'edit')
+    if [[! -f $confFile ]]; then
+      alertMsg "Error" "$confFile is not exists, Please add this"
+      exit 1;
+    fi
+    # commentLine 'success' "You edit config file that you use the code editor "
+    vim "$configDir/$2.conf"
+
+    ;;
+  'show')
+    confFile="$configDir/$2.conf"
+    commentLine 'success' "The following content is the config file [${confFile}] info"
+    cat $confFile
+
+    ;;
+
   'backup')
     # db, file, all
     unidump_backup $2 $3
@@ -531,38 +561,18 @@ $(($i+1)) )$file"
     unidump_clear_db $2 $3
 
     ;;
-  'list')
-    # --all
-    commentLine 'success' "Current config file"
-    # @TODO: 可以在配置文件中增加描述，在显示时。便于阅读
-    for i in $HOME/.cron_unidump.d/*.conf; do
-      i=${i#*/.cron_unidump.d/}
-      echo ${i%%.conf}
-    done
 
-    ;;
-  'edit')
-    commentLine 'success' "You edit config file that you use the code editor "
-    vim "$configDir/$2.conf"
-
-    ;;
-  'show')
-    confFile="$configDir/$2.conf"
-    commentLine 'success' "The following content is the config file [${confFile}] info"
-    cat $confFile
+  'check')
+    #@TODO check config file
+    commentLine "alert" "The command support is upcoming!"
 
     ;;
   'help')
     commentLine "alert" "The command support is upcoming!"
 
     ;;
-  'check')
-    #@TODO check config file
-    commentLine "alert" "The command support is upcoming!"
-
-    ;;
   *)
-    commentLine "alert" "Only support: install, uninstall, add, backup, restore, list, edit, show"
+    commentLine "alert" "Only support: install, uninstall, add, backup, restore, list, edit, show, check"
     ;;
 esac
 
