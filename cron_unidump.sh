@@ -277,7 +277,7 @@ function unidump_backup_file(){
       lastBackupTime=$(stat $intervalSnapFile | grep Modify | awk '{print $2}' )
       t1=$(date -d "$lastBackupTime" +%s)
       t2=$(date -d "$INTERVAL_DAYS days ago" +%s)
-      if [[ $t1 -lt $t2 ]]; then
+      if [[ $t1 -ge $t2 ]]; then
         fullBackup=false
       fi
     fi
