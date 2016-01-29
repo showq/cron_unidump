@@ -277,7 +277,7 @@ function unidump_backup_file(){
       lastBackupTime=$(stat $intervalSnapFile | grep Modify | awk '{print $2}' )
       t1=$(date -d "$lastBackupTime" +%s)
       t2=$(date -d "$INTERVAL_DAYS days ago" +%s)
-      if [[ $t1 -gt $t2 ]]; then
+      if [[ $t1 -lt $t2 ]]; then
         fullBackup=false
       fi
     fi
@@ -400,6 +400,13 @@ function unidump_clear_db(){
   fi
 }
 
+function unidump_check_file(){
+  if [[ -f $1 ]]; then
+    alertMsg "Duplicate name" "$1 is exists, Please use other name"
+    exit 1;
+  fi
+}
+
 #######################################
 # Variables
 #######################################
@@ -499,11 +506,7 @@ case $1 in
     ;;
   'add')
     # Add new conf
-    if [[ -f $confFile ]]; then
-      alertMsg "Duplicate name" "$confFile is exists, Please use other name"
-      exit 1;
-    fi
-
+    unidump_check_file $confFile
     cp $HOME/.cron_unidump.d/example.eg $confFile
     vim $confFile
 
@@ -511,16 +514,13 @@ case $1 in
 
     ;;
   'edit')
-    if [[! -f $confFile ]]; then
-      alertMsg "Error" "$confFile is not exists, Please add this"
-      exit 1;
-    fi
+    unidump_check_file $confFile
     # commentLine 'success' "You edit config file that you use the code editor "
     vim "$configDir/$2.conf"
 
     ;;
   'show')
-    confFile="$configDir/$2.conf"
+    unidump_check_file $confFile
     commentLine 'success' "The following content is the config file [${confFile}] info"
     cat $confFile
 
