@@ -169,7 +169,7 @@ function unidump_backup_db_check(){
     CHECK_RESULT=false
   fi
 
-  if [[ ! $CHECK_RESULT ]]; then
+  if [ "$CHECK_RESULT" = false ]; then
     exit 1
   fi
 }
@@ -262,9 +262,10 @@ function unidump_backup_file(){
 
     fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
     if [[ -d $EXTRA_SOURCE ]]; then
-      fileBackupCommand = "$fileBackupCommand $EXTRA_SOURCE"
+      fileBackupCommand="$fileBackupCommand $EXTRA_SOURCE"
     fi
 
+    snapDate=$(date +"%y%m%d")
     commentLine 33m "File backup command: $fileBackupCommand"
 
     echo "------------------"$NAME"-------------------------" >> $logFile
@@ -281,13 +282,13 @@ function unidump_backup_file(){
       fi
     fi
 
-    if [[ $fullBackup ]]; then
-      [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
+    if [ "$fullBackup" = true ]; then
+      [ -f $snapFile ] && mv $snapFile $snapFile-$snapDate.log
       $fileBackupCommand
       cp $snapFile $intervalSnapFile
     else
       if [ -f $intervalSnapFile ]; then
-        [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
+        [ -f $snapFile ] && mv $snapFile $snapFile-$snapDate.log
         cp $intervalSnapFile $snapFile
         $fileBackupCommand
       else
