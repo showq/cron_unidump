@@ -260,7 +260,7 @@ function unidump_backup_file(){
     logFileName=$NAME-$dateStrSuffix.log
     logFile=$logBaseDir/$logFileName
 
-    fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
+    fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE ${EXCLUDE[@]}"
     if [[ -d $EXTRA_SOURCE ]]; then
       fileBackupCommand="$fileBackupCommand $EXTRA_SOURCE"
     fi
