@@ -260,7 +260,6 @@ function unidump_backup_file(){
     logFileName=$NAME-$dateStrSuffix.log
     logFile=$logBaseDir/$logFileName
 
-    #@TODO Add verbose to tar command -v
     fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE $EXCLUDE"
     if [[ -d $EXTRA_SOURCE ]]; then
       fileBackupCommand = "$fileBackupCommand $EXTRA_SOURCE"
@@ -282,19 +281,12 @@ function unidump_backup_file(){
       fi
     fi
 
-    if [ $fullBackup ] || [ "$dateOfRemovalSnapshot" = "ALL" ]; then
+    if [[ $fullBackup ]]; then
       [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
       $fileBackupCommand
       cp $snapFile $intervalSnapFile
-      if [ "$dateOfRemovalSnapshot" = "ALL" ]; then
-        removalString="ALL"
-      else
-        removalString="Recreate snapshot file "
-      fi
-      echo "REBASE STATUS::"$removalString >> $logFile
     else
       if [ -f $intervalSnapFile ]; then
-        # back day snapshot log
         [ -f $snapFile ] && mv $snapFile $snapFile-$(date +"%y%m%d").log
         cp $intervalSnapFile $snapFile
         $fileBackupCommand
@@ -315,8 +307,9 @@ function unidump_backup_file(){
 
     echo "End: "$(date +"%y-%m-%d %H:%M:%S") >> $logFile
 
-    cp $logFile $fileBaseDir/
-    sudo chown $fileOwn $fileBaseDir/$logFileName
+    # Remove backup directory log
+    # cp $logFile $fileBaseDir/
+    # sudo chown $fileOwn $fileBaseDir/$logFileName
     echo "----------------------------------------------------\n" >> $logFile
     commentLine 'notice' "------------------ File backup complete"
   fi
@@ -400,9 +393,15 @@ function unidump_clear_db(){
   fi
 }
 
-function unidump_check_file(){
+function unidump_is_exists_file(){
   if [[ -f $1 ]]; then
     alertMsg "Duplicate name" "$1 is exists, Please use other name"
+    exit 1;
+  fi
+}
+function unidump_non_exists_file(){
+  if [[ ! -f $1 ]]; then
+    alertMsg "Config non exists" "$1 is non exists, Please use add name"
     exit 1;
   fi
 }
@@ -506,7 +505,7 @@ case $1 in
     ;;
   'add')
     # Add new conf
-    unidump_check_file $confFile
+    unidump_is_exists_file $confFile
     cp $HOME/.cron_unidump.d/example.eg $confFile
     vim $confFile
 
@@ -514,13 +513,13 @@ case $1 in
 
     ;;
   'edit')
-    unidump_check_file $confFile
+    unidump_non_exists_file $confFile
     # commentLine 'success' "You edit config file that you use the code editor "
     vim "$configDir/$2.conf"
 
     ;;
   'show')
-    unidump_check_file $confFile
+    unidump_non_exists_file $confFile
     commentLine 'success' "The following content is the config file [${confFile}] info"
     cat $confFile
 
