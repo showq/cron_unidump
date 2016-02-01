@@ -197,13 +197,13 @@ function unidump_backup_db(){
       dumpCommand="$mysqlDump -h $DBHOST --user=$DBUSER --password=$DBPASS --add-drop-table $DBOPTIONS $DBNAME $DBSQLDUMP_TABLES -r$dbBackDir_date/backup.sql";;
     *)
       # mydumper
-      dumpCommand="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER -p '$DBPASS' -B $DBNAME $DBOPTIONS";;
+      dumpCommand="$myDumper -o $dbBackDir_date -r 10000 -c -e -u $DBUSER --password=$DBPASS -B $DBNAME $DBOPTIONS";;
 
   esac
 
   commentLine 'notice' "Command: $dumpCommand"
-  commandMsg=$($dumpCommand)
-  commentLine 'notice' "$commandMsg"
+  $dumpCommand
+  commentLine 'notice' "Command: End"
   # Clear DBNAME backspace
   DBNAME=${DBNAME// /_}
 
