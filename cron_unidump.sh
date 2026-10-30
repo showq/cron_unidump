@@ -360,56 +360,80 @@ function unidump_backup_file(){
 
   if [ $SOURCE -a -d $SOURCE ]; then
     commentLine 32m "------------------ File backup begin"
-    TARGET=$fileBaseDir/"FILE-"$NAME-$dateStrSuffix.tar.bz2
     snapFile=$logBaseDir/snapshot-$NAME-incremental
     intervalSnapFile=$snapFile"-intervalBase"
     logFileName=$NAME-$dateStrSuffix.log
     logFile=$logBaseDir/$logFileName
+    snapDate=$(date +"%y%m%d")
+
+    # FILE_MODE (per conf) / BACKUP_FILE_MODE (global):
+    #   incremental  - each run only contains changes since the previous run (default)
+    #   differential - each run contains all changes since the last full backup
+    # A full backup is made when the base snapshot is missing or older than INTERVAL_DAYS.
+    FILE_MODE=${FILE_MODE:-${BACKUP_FILE_MODE:-incremental}}
+
+    fullBackup=true
+    if [[ -f $intervalSnapFile ]]; then
+      t1=$(stat -c %Y $intervalSnapFile 2>/dev/null)
+      t2=$(date -d "$INTERVAL_DAYS days ago" +%s 2>/dev/null)
+      if [[ -n "$t1" ]] && [[ -n "$t2" ]] && [[ $t1 -ge $t2 ]]; then
+        fullBackup=false
+      fi
+    fi
+    # An incremental chain also needs the snapshot left by the previous run
+    if [[ $fullBackup = false && $FILE_MODE = incremental && ! -f $snapFile ]]; then
+      fullBackup=true
+    fi
+
+    if [ "$fullBackup" = true ]; then
+      backupType=full
+    elif [ "$FILE_MODE" = differential ]; then
+      backupType=diff
+    else
+      backupType=inc
+    fi
+
+    # Type suffix in the name: restore = latest *-full + every later *-inc in order
+    TARGET=$fileBaseDir/"FILE-"$NAME-$dateStrSuffix-$backupType.tar.bz2
 
     fileBackupCommand="tar -g $snapFile -jpPc -f $TARGET $SOURCE ${EXCLUDE[@]}"
     if [[ -d $EXTRA_SOURCE ]]; then
       fileBackupCommand="$fileBackupCommand $EXTRA_SOURCE"
     fi
 
-    snapDate=$(date +"%y%m%d")
-    commentLine 33m "File backup command: $fileBackupCommand"
+    commentLine 33m "File backup ($backupType) command: $fileBackupCommand"
 
     echo "------------------"$NAME"-------------------------" >> $logFile
     echo "Begin: "$dateStr >> $logFile
+    echo "Type: $backupType (mode=$FILE_MODE, full every $INTERVAL_DAYS days)" >> $logFile
     echo $fileBackupCommand >> $logFile
 
-    fullBackup=true
-    if [[ -f $intervalSnapFile ]]; then
-      lastBackupTime=$(stat $intervalSnapFile | grep Modify | awk '{print $2}' 2>/dev/null)
-      if [[ -n "$lastBackupTime" ]]; then
-        t1=$(date -d "$lastBackupTime" +%s 2>/dev/null)
-        t2=$(date -d "$INTERVAL_DAYS days ago" +%s 2>/dev/null)
-        if [[ -n "$t1" ]] && [[ -n "$t2" ]] && [[ $t1 -ge $t2 ]]; then
-          fullBackup=false
-        fi
-      fi
-    fi
+    # Keep the previous snapshot as history and as rollback point
+    [ -f $snapFile ] && cp -p $snapFile $snapFile-$snapDate.log
+    case $backupType in
+      full) rm -f $snapFile ;;
+      diff) cp $intervalSnapFile $snapFile ;;
+      inc)  ;; # continue from the snapshot of the previous run
+    esac
 
-    if [ "$fullBackup" = true ]; then
-      [ -f $snapFile ] && mv $snapFile $snapFile-$snapDate.log
-      $fileBackupCommand
-      cp $snapFile $intervalSnapFile
-    else
-      if [ -f $intervalSnapFile ]; then
-        [ -f $snapFile ] && mv $snapFile $snapFile-$snapDate.log
-        cp $intervalSnapFile $snapFile
-        $fileBackupCommand
-      else
-        $fileBackupCommand
+    nice -n 10 ionice -c2 -n7 $fileBackupCommand
+    rc=$?
+
+    # tar rc 1 = some files changed while being read; the archive is still usable
+    if [ $rc -le 1 ]; then
+      if [ $backupType = full ]; then
         cp $snapFile $intervalSnapFile
       fi
-    fi
-
-    if [ $? = "0" ]; then
-      backInfo="Backup successful!"
+      backInfo="Backup successful! ($backupType, tar rc=$rc)"
       sudo chown $fileOwn $TARGET
     else
-      backInfo="Backup failed! Error #"$?
+      # Roll the snapshot back so the next run does not skip these changes
+      if [ -f $snapFile-$snapDate.log ]; then
+        cp -p $snapFile-$snapDate.log $snapFile
+      else
+        rm -f $snapFile
+      fi
+      backInfo="Backup failed! ($backupType) Error #$rc"
     fi
     commentLine 'notice' "$backInfo"
     echo $backInfo >> $logFile
@@ -423,7 +447,7 @@ function unidump_backup_file(){
     commentLine 'notice' "------------------ File backup complete"
   fi
   # unset variables
-  unset NAME SOURCE TARGET EXCLUDE
+  unset NAME SOURCE TARGET EXCLUDE FILE_MODE
 }
 
 function unidump_readConfig(){

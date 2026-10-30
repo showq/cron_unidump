@@ -35,5 +35,7 @@ BACKUP_SUBJECT="MySQL backup on \$SERVER (\$DATE)"
 # ----------
 # Delete old files?
 BACKUP_DELETE=y
-# How many days of backups do you want to keep?
+# File backup: make a full backup every N days
 BACKUP_INTERVAL_DAYS=30
+# File backup mode between full backups: incremental | differential
+BACKUP_FILE_MODE=incremental

@@ -174,7 +174,10 @@ BACKUP_EMAILS="admin@example.com"
 
 # 备份保留策略
 BACKUP_DELETE=y
+
+# 文件备份：完整备份间隔（天）与模式
 BACKUP_INTERVAL_DAYS=30
+BACKUP_FILE_MODE=incremental  # incremental | differential
 ```
 
 ### 任务配置 (`~/.cron_unidump.d/<name>.conf`)
@@ -184,7 +187,8 @@ BACKUP_INTERVAL_DAYS=30
 SOURCE='/path/to/backup'
 EXCLUDE="--exclude=*.log --exclude=cache/"
 EXTRA_SOURCE="/additional/path"
-INTERVAL_DAYS=30  # 完整备份间隔（天）
+INTERVAL_DAYS=30  # 完整备份间隔（天），覆盖全局
+FILE_MODE=incremental  # incremental | differential，覆盖全局
 
 # 数据库备份配置
 DBHOST='localhost'
@@ -192,6 +196,55 @@ DBNAME='database_name'
 DBENGINE='innodb'  # 选项: innodb, myisam, mysqldump
 DBOPTIONS='--single-transaction'  # 额外选项
 ```
+
+## 增量 / 差异备份
+
+文件备份基于 GNU tar 的 `-g` 快照（listed-incremental），支持两种模式：
+
+| 模式 | `FILE_MODE` | 每次备份包含 | 恢复需要 |
+|------|-------------|--------------|----------|
+| 增量（默认） | `incremental` | 自上一次备份以来的变化 | 最近的 full + 之后所有 inc |
+| 差异 | `differential` | 自最近一次完整备份以来的全部变化 | 最近的 full + 最近一个 diff |
+
+每 `INTERVAL_DAYS` 天自动做一次完整备份；基准快照或上一次的快照丢失时也会自动转为完整备份。
+
+```
+Day 1:      full  → 创建基准快照
+Day 2-14:   inc   → 只包含前一天之后的变化
+Day 15:     full  → 更新基准快照，开始新的链   (INTERVAL_DAYS=14)
+```
+
+**备份文件命名**：文件名末尾带类型，便于识别恢复链：
+
+```
+FILE-myapp-2024-12-01-19-51-01-full.tar.bz2
+FILE-myapp-2024-12-02-19-51-01-inc.tar.bz2
+FILE-myapp-2024-12-03-19-51-01-inc.tar.bz2
+```
+
+**可靠性**：
+
+- tar 返回码 1（备份过程中有文件被修改）视为成功，归档可用
+- tar 失败时快照自动回滚到运行前的状态，下次运行不会漏掉这些变化
+- 每次运行前的快照保存为 `snapshot-<name>-incremental-YYMMDD.log`
+- tar 以 `nice` / `ionice` 低优先级运行，减少对线上服务的影响
+
+快照文件（自动管理，位于 `logBaseDir`）：
+- `snapshot-<name>-incremental` - 当前快照（增量链的状态）
+- `snapshot-<name>-incremental-intervalBase` - 最近一次完整备份的基准快照
+
+⚠️ **tar 以 ctime 判断变化**：`chown -R` / `chmod -R` 等只改属性的操作也会更新 ctime，下一次备份会把这些文件全部重新打包。增量模式下只影响一次；差异模式下会持续到下一次完整备份。
+
+**恢复**：按时间顺序先解开最近的 `*-full`，再依次解开之后的每个 `*-inc`（差异模式只需最近一个 `*-diff`）。`-g /dev/null` 让 tar 同步删除在备份之间被删除的文件：
+
+```bash
+cd /restore/path
+tar -xjf FILE-myapp-2024-12-01-19-51-01-full.tar.bz2 -g /dev/null
+tar -xjf FILE-myapp-2024-12-02-19-51-01-inc.tar.bz2  -g /dev/null
+tar -xjf FILE-myapp-2024-12-03-19-51-01-inc.tar.bz2  -g /dev/null
+```
+
+清理旧备份时，不要删除仍在使用中的 `*-full`，否则其后的 `*-inc` 无法恢复。
 
 ## 自动化备份
 
@@ -299,6 +352,13 @@ mysql --defaults-file=~/.mysql_backup.cnf -e "SELECT 1;"
 - 任务日志：由 `logBaseDir` 指定（默认 `/var/log/backup/<config_name>/`）
 
 ## 更新日志
+
+### v2.2 (2026)
+- ✅ 真正的增量备份：每次基于上一次的快照（之前每天都基于周期基准，实际是差异备份）
+- ✅ 新增 `FILE_MODE` / `BACKUP_FILE_MODE`：`incremental`（默认）或 `differential`
+- ✅ 备份文件名带类型后缀：`-full` / `-inc` / `-diff`
+- ✅ tar 失败时快照回滚；tar 返回码 1 视为成功
+- ✅ tar 以 nice / ionice 低优先级运行
 
 ### v2.1 (2024)
 - ✅ 修复逻辑错误 (CHECKTYPE 判断)
